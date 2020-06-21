@@ -4,6 +4,7 @@ import com.sun.nio.file.ExtendedWatchEventModifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -14,6 +15,7 @@ import java.util.Set;
 
 @Slf4j
 @SpringBootApplication
+@EnableFeignClients
 public class FileWalkerServiceApplication {
 
 	public static void main(String[] args) throws IOException, InterruptedException {
@@ -35,3 +37,5 @@ public class FileWalkerServiceApplication {
 	}
 
 }
+
+
