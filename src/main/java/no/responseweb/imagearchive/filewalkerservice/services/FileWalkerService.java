@@ -31,6 +31,7 @@ public class FileWalkerService {
     private final FileInfoService fileInfoService;
     private final JmsTemplate jmsTemplate;
 
+    // TODO: Reduce Cognitive Complexity
     @Scheduled(fixedDelayString = "${response.scheduling.fixed-delay-time}", initialDelayString = "${response.scheduling.initial-delay-time}")
     public void walk() throws IOException {
         log.info("Scheduled walk started on path: {}", pathNickname);
@@ -38,7 +39,7 @@ public class FileWalkerService {
         Path rootPath = Paths.get(fileStoreDto.getBaseUri());
         log.info("FileStore configured to walk: {}", fileStoreDto);
         Set<String> fileList = new HashSet<>();
-        Map<UUID,List<FileItemDto>> testmap = new HashMap<>();
+        Map<Path,List<FileItemDto>> testmap = new HashMap<>();
         File fPath = new File(fileStoreDto.getBaseUri());
         Files.walkFileTree(fPath.toPath(), new SimpleFileVisitor<>() {
             @Override
@@ -53,10 +54,11 @@ public class FileWalkerService {
                 }
                 log.info("Current FilePath: {}", filePathDto);
 
+                List<FileItemDto> filesAtPath = new ArrayList<>();
                 if (filePathDto!=null) {
-                    List<FileItemDto> filesAtPath = fileInfoService.getFilesAtPath(filePathDto.getId());
-                    testmap.put(filePathDto.getId(),filesAtPath);
+                    filesAtPath = fileInfoService.getFilesAtPath(filePathDto.getId());
                 }
+                testmap.put(dir,filesAtPath);
                 return super.preVisitDirectory(dir, attrs);
             }
 
@@ -69,21 +71,25 @@ public class FileWalkerService {
                 } else {
                     filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),rootPath.relativize(dir).toString());
                 }
-                log.info("Leaving this filePath: {}", filePathDto);
 
-                List<FileItemDto> fileItems = testmap.get(filePathDto.getId()).stream()
-                        .filter(fileItem -> !fileItem.isLocallyVisited())
-                        .collect(Collectors.toList());
+                if (filePathDto != null) {
+                    List<FileItemDto> fileItems = testmap.get(dir).stream()
+                            .filter(fileItem -> !fileItem.isLocallyVisited())
+                            .collect(Collectors.toList());
 
-                fileItems.forEach(fileItem -> {
-                    log.info("File is removed: {}", fileItem);
-                    jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
-                            .fileStoreRequestType(FileStoreRequestTypeDto.DELETE)
-                            .fileItem(fileItem)
-                            .build());
-                });
+                    fileItems.forEach(fileItem -> {
+                        log.info("File is removed: {}", fileItem);
+                        jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
+                                .fileStoreRequestType(FileStoreRequestTypeDto.DELETE)
+                                .fileStore(fileStoreDto)
+                                .filePath(filePathDto)
+                                .fileItem(fileItem)
+                                .build());
+                    });
 
-                testmap.remove(filePathDto.getId());
+                }
+
+                testmap.remove(dir);
                 return super.postVisitDirectory(dir, exc);
             }
 
@@ -91,16 +97,24 @@ public class FileWalkerService {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 if (!Files.isDirectory(file)) {
 
+                    Path relativePath = rootPath.relativize(file.getParent());
                     FilePathDto filePathDto;
                     if (rootPath.equals(file.getParent())) {
                         filePathDto = fileInfoService.getRootFilePath(fileStoreDto.getId());
                     } else {
-                        filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),rootPath.relativize(file.getParent()).toString());
+                        filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),relativePath.toString());
+                    }
+                    if (filePathDto == null) {
+                        filePathDto = FilePathDto.builder()
+                                .fileStoreId(fileStoreDto.getId())
+                                .relativePath(relativePath.toString())
+                                .build();
                     }
 
                     BasicFileAttributes fileAttr = Files.getFileAttributeView(file, BasicFileAttributeView.class).readAttributes();
 
-                    List<FileItemDto> fileItems = testmap.get(filePathDto.getId());
+                    List<FileItemDto> fileItems = testmap.get(file.getParent());
+
                     FileItemDto fromStore = fileItems.stream()
                             .filter(fileItem -> file.getFileName().toString().equals(fileItem.getFilename()))
                             .findAny()
@@ -113,6 +127,8 @@ public class FileWalkerService {
                         log.info("New file: {}", file.getFileName());
                         jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
                                 .fileStoreRequestType(FileStoreRequestTypeDto.INSERT)
+                                .fileStore(fileStoreDto)
+                                .filePath(filePathDto)
                                 .fileItem(FileItemDto.builder()
                                         .fileStorePathId(filePathDto.getId())
                                         .filename(file.getFileName().toString())
@@ -141,6 +157,8 @@ public class FileWalkerService {
                         if (fromStore.isLocallyChanged()) {
                             jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
                                     .fileStoreRequestType(FileStoreRequestTypeDto.UPDATE)
+                                    .fileStore(fileStoreDto)
+                                    .filePath(filePathDto)
                                     .fileItem(fromStore)
                                     .build());
                         }
