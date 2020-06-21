@@ -2,10 +2,9 @@ package no.responseweb.imagearchive.filewalkerservice.services;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileItemDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FilePathDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileStoreDto;
-import org.springframework.context.annotation.Profile;
+import no.responseweb.imagearchive.model.FileItemDto;
+import no.responseweb.imagearchive.model.FilePathDto;
+import no.responseweb.imagearchive.model.FileStoreDto;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 

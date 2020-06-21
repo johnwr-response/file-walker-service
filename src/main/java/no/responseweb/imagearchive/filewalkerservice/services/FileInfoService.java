@@ -1,8 +1,8 @@
 package no.responseweb.imagearchive.filewalkerservice.services;
 
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileItemDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FilePathDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileStoreDto;
+import no.responseweb.imagearchive.model.FileItemDto;
+import no.responseweb.imagearchive.model.FilePathDto;
+import no.responseweb.imagearchive.model.FileStoreDto;
 
 import java.util.List;
 import java.util.UUID;

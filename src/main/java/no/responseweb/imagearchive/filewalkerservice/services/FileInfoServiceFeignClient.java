@@ -1,9 +1,9 @@
 package no.responseweb.imagearchive.filewalkerservice.services;
 
 import no.responseweb.imagearchive.filewalkerservice.config.FeignClientConfig;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileItemDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FilePathDto;
-import no.responseweb.imagearchive.filewalkerservice.services.model.FileStoreDto;
+import no.responseweb.imagearchive.model.FileItemDto;
+import no.responseweb.imagearchive.model.FilePathDto;
+import no.responseweb.imagearchive.model.FileStoreDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;

@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import no.responseweb.imagearchive.filewalkerservice.config.JmsConfig;
-import no.responseweb.imagearchive.filewalkerservice.services.model.*;
+import no.responseweb.imagearchive.model.*;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -13,7 +13,10 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
+import java.sql.Timestamp;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -95,6 +98,8 @@ public class FileWalkerService {
                         filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),rootPath.relativize(file.getParent()).toString());
                     }
 
+                    BasicFileAttributes fileAttr = Files.getFileAttributeView(file, BasicFileAttributeView.class).readAttributes();
+
                     List<FileItemDto> fileItems = testmap.get(filePathDto.getId());
                     FileItemDto fromStore = fileItems.stream()
                             .filter(fileItem -> file.getFileName().toString().equals(fileItem.getFilename()))
@@ -111,11 +116,34 @@ public class FileWalkerService {
                                 .fileItem(FileItemDto.builder()
                                         .fileStorePathId(filePathDto.getId())
                                         .filename(file.getFileName().toString())
+                                        .createdDate(Timestamp.from(fileAttr.creationTime().toInstant()))
+                                        .lastModifiedDate(Timestamp.from(fileAttr.lastModifiedTime().toInstant()))
+                                        .size(fileAttr.size())
                                         .build())
                                 .build());
                     } else {
                         log.info("File found in store: {}", fromStore);
-                        // TODO: Detect changes and add change-message on file-store-queue
+                        FileTime created = fileAttr.creationTime();
+                        if (!created.toInstant().equals(fromStore.getCreatedDate().toInstant())) {
+                            fromStore.setCreatedDate(Timestamp.from(created.toInstant()));
+                            fromStore.setLocallyChanged(true);
+                        }
+                        FileTime modified = fileAttr.lastModifiedTime();
+                        if (!modified.toInstant().equals(fromStore.getLastModifiedDate().toInstant())) {
+                            fromStore.setLastModifiedDate(Timestamp.from(modified.toInstant()));
+                            fromStore.setLocallyChanged(true);
+                        }
+                        long size = fileAttr.size();
+                        if (fromStore.getSize()==null || size!=fromStore.getSize()) {
+                            fromStore.setSize(size);
+                            fromStore.setLocallyChanged(true);
+                        }
+                        if (fromStore.isLocallyChanged()) {
+                            jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
+                                    .fileStoreRequestType(FileStoreRequestTypeDto.UPDATE)
+                                    .fileItem(fromStore)
+                                    .build());
+                        }
                     }
                     // check
                     fileList.add(file.getFileName().toString());
