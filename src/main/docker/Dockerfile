@@ -12,9 +12,9 @@ EXPOSE 8080
 
 WORKDIR application
 #COPY smbcreds /application/
-COPY entrypoint.sh /application/
-RUN mkdir /mnt/walkfolder
-RUN chmod +x /application/entrypoint.sh
+#COPY entrypoint.sh /application/
+RUN mkdir /mnt/walkfolders && mkdir /mnt/walkfolders/a && mkdir /mnt/walkfolders/b && mkdir /mnt/walkfolders/c && mkdir /mnt/walkfolders/d
+#RUN chmod +x /application/entrypoint.sh
 COPY --from=builder application/dependencies/ ./
 COPY --from=builder application/spring-boot-loader/ ./
 COPY --from=builder application/snapshot-dependencies/ ./

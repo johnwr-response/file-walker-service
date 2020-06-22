@@ -14,7 +14,8 @@ import java.util.List;
 import java.util.UUID;
 
 //@FeignClient(name = "file-info-service", fallback = FileInfoServiceFeignClientFailover.class, configuration = FeignClientConfig.class)
-@FeignClient(value = "file-info-service", url = "http://localhost:8071", configuration = FeignClientConfig.class)
+//@FeignClient(value = "file-info-service", url = "http://localhost:8071", configuration = FeignClientConfig.class)
+@FeignClient(value = "file-info-service", url = "${feign.client.url.FileInfoServiceUrl}", configuration = FeignClientConfig.class)
 public interface FileInfoServiceFeignClient {
     @RequestMapping(method = RequestMethod.GET, value = FileInfoServiceFeignImpl.FILES_IN_FOLDER_PATH)
     ResponseEntity<List<FileItemDto>> getFilesInFolder(@PathVariable UUID filePathId);

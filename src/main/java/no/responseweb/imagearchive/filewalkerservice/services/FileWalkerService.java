@@ -12,11 +12,15 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -28,19 +32,26 @@ import java.util.stream.Collectors;
 public class FileWalkerService {
 
     private String pathNickname;
+    private String overrideWalkPath;
     private final FileInfoService fileInfoService;
     private final JmsTemplate jmsTemplate;
 
     // TODO: Reduce Cognitive Complexity
     @Scheduled(fixedDelayString = "${response.scheduling.fixed-delay-time}", initialDelayString = "${response.scheduling.initial-delay-time}")
     public void walk() throws IOException {
+        log.info("System: {}", System.getProperty("os.name"));
         log.info("Scheduled walk started on path: {}", pathNickname);
         FileStoreDto fileStoreDto = fileInfoService.getFileStore(pathNickname);
-        Path rootPath = Paths.get(fileStoreDto.getBaseUri());
         log.info("FileStore configured to walk: {}", fileStoreDto);
         Set<String> fileList = new HashSet<>();
         Map<Path,List<FileItemDto>> testmap = new HashMap<>();
-        File fPath = new File(fileStoreDto.getBaseUri());
+        File fPath = new File(fileStoreDto.getLocalBaseUri());
+        if (!overrideWalkPath.isEmpty()) {
+            fPath = new File(overrideWalkPath + File.separator + fileStoreDto.getMountPoint() + File.separator + fileStoreDto.getBaseFolder());
+            log.info("Walk Path Overridden: {}", fPath.toString());
+        }
+        log.info("fPath is directory: {}", fPath.isDirectory());
+        Path rootPath = fPath.toPath();
         Files.walkFileTree(fPath.toPath(), new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -132,21 +143,23 @@ public class FileWalkerService {
                                 .fileItem(FileItemDto.builder()
                                         .fileStorePathId(filePathDto.getId())
                                         .filename(file.getFileName().toString())
-                                        .createdDate(Timestamp.from(fileAttr.creationTime().toInstant()))
-                                        .lastModifiedDate(Timestamp.from(fileAttr.lastModifiedTime().toInstant()))
+                                        .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant(), ZoneOffset.UTC))
+                                        .lastModifiedDate(LocalDateTime.ofInstant(fileAttr.lastModifiedTime().toInstant(), ZoneOffset.UTC))
                                         .size(fileAttr.size())
                                         .build())
                                 .build());
                     } else {
                         log.info("File found in store: {}", fromStore);
                         FileTime created = fileAttr.creationTime();
-                        if (!created.toInstant().equals(fromStore.getCreatedDate().toInstant())) {
-                            fromStore.setCreatedDate(Timestamp.from(created.toInstant()));
+                        if (created.toInstant().toEpochMilli() != fromStore.getCreatedDate().toInstant(ZoneOffset.UTC).toEpochMilli()) {
+                            fromStore.setCreatedDate(LocalDateTime.ofInstant(created.toInstant(), ZoneOffset.UTC));
+//                            log.info("File.created: {} File.dto: {}", created.toString(), fromStore.getCreatedDate().toString());
                             fromStore.setLocallyChanged(true);
                         }
                         FileTime modified = fileAttr.lastModifiedTime();
-                        if (!modified.toInstant().equals(fromStore.getLastModifiedDate().toInstant())) {
-                            fromStore.setLastModifiedDate(Timestamp.from(modified.toInstant()));
+                        if (modified.toInstant().toEpochMilli() != fromStore.getLastModifiedDate().toInstant(ZoneOffset.UTC).toEpochMilli()) {
+                            fromStore.setLastModifiedDate(LocalDateTime.ofInstant(modified.toInstant(), ZoneOffset.UTC));
+//                            log.info("File.modified: {} toInstant {}, File.dto: {} toInstant {}", modified.toString(), modified.toInstant().toEpochMilli(), fromStore.getLastModifiedDate().toString(), fromStore.getLastModifiedDate().toInstant().toEpochMilli());
                             fromStore.setLocallyChanged(true);
                         }
                         long size = fileAttr.size();
