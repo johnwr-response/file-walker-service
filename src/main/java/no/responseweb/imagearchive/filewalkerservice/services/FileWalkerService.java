@@ -19,10 +19,14 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static java.time.ZoneId.systemDefault;
 
 @Service
 @Slf4j
@@ -40,6 +44,8 @@ public class FileWalkerService {
     @Scheduled(fixedDelayString = "${response.scheduling.fixed-delay-time}", initialDelayString = "${response.scheduling.initial-delay-time}")
     public void walk() throws IOException {
         log.info("System: {}", System.getProperty("os.name"));
+        ZoneOffset currentSystemZoneOffset = systemDefault().getRules().getOffset(Instant.now());
+        log.info("Current System Zone offset: {}", currentSystemZoneOffset);
         log.info("Scheduled walk started on path: {}", pathNickname);
         FileStoreDto fileStoreDto = fileInfoService.getFileStore(pathNickname);
         log.info("FileStore configured to walk: {}", fileStoreDto);
@@ -143,23 +149,23 @@ public class FileWalkerService {
                                 .fileItem(FileItemDto.builder()
                                         .fileStorePathId(filePathDto.getId())
                                         .filename(file.getFileName().toString())
-                                        .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant(), ZoneOffset.UTC))
-                                        .lastModifiedDate(LocalDateTime.ofInstant(fileAttr.lastModifiedTime().toInstant(), ZoneOffset.UTC))
+                                        .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
+                                        .lastModifiedDate(LocalDateTime.ofInstant(fileAttr.lastModifiedTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
                                         .size(fileAttr.size())
                                         .build())
                                 .build());
                     } else {
                         log.info("File found in store: {}", fromStore);
                         FileTime created = fileAttr.creationTime();
-                        if (created.toInstant().toEpochMilli() != fromStore.getCreatedDate().toInstant(ZoneOffset.UTC).toEpochMilli()) {
-                            fromStore.setCreatedDate(LocalDateTime.ofInstant(created.toInstant(), ZoneOffset.UTC));
-//                            log.info("File.created: {} File.dto: {}", created.toString(), fromStore.getCreatedDate().toString());
+                        if (!LocalDateTime.ofInstant(created.toInstant(), currentSystemZoneOffset).truncatedTo(ChronoUnit.SECONDS).isEqual(fromStore.getCreatedDate())) {
+                            log.info("File.created: {}, File.dto: {}", LocalDateTime.ofInstant(created.toInstant(), currentSystemZoneOffset).toInstant(currentSystemZoneOffset), fromStore.getCreatedDate().toInstant(currentSystemZoneOffset));
+                            fromStore.setCreatedDate(LocalDateTime.ofInstant(created.toInstant(), currentSystemZoneOffset).truncatedTo(ChronoUnit.SECONDS));
                             fromStore.setLocallyChanged(true);
                         }
                         FileTime modified = fileAttr.lastModifiedTime();
-                        if (modified.toInstant().toEpochMilli() != fromStore.getLastModifiedDate().toInstant(ZoneOffset.UTC).toEpochMilli()) {
-                            fromStore.setLastModifiedDate(LocalDateTime.ofInstant(modified.toInstant(), ZoneOffset.UTC));
-//                            log.info("File.modified: {} toInstant {}, File.dto: {} toInstant {}", modified.toString(), modified.toInstant().toEpochMilli(), fromStore.getLastModifiedDate().toString(), fromStore.getLastModifiedDate().toInstant().toEpochMilli());
+                        if (!LocalDateTime.ofInstant(modified.toInstant(), currentSystemZoneOffset).truncatedTo(ChronoUnit.SECONDS).isEqual(fromStore.getLastModifiedDate())) {
+                            log.info("File.modified: {}, File.dto: {}", LocalDateTime.ofInstant(modified.toInstant(), currentSystemZoneOffset).toString(), fromStore.getLastModifiedDate().toString());
+                            fromStore.setLastModifiedDate(LocalDateTime.ofInstant(modified.toInstant(), currentSystemZoneOffset).truncatedTo(ChronoUnit.SECONDS));
                             fromStore.setLocallyChanged(true);
                         }
                         long size = fileAttr.size();
