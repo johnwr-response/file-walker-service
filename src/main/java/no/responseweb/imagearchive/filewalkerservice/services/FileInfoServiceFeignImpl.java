@@ -14,13 +14,20 @@ import java.util.UUID;
 @Slf4j
 @RequiredArgsConstructor
 @Service
-// @Profile({"feign-test-do-not-use"})
 public class FileInfoServiceFeignImpl implements FileInfoService {
-    public static final String FILES_IN_FOLDER_PATH = "/api/v1/filesinfolder/{filePathId}";
-    public static final String STORE_ROOT_PATH = "/api/v1/filePath/{fileStoreId}/file-store-root-folder";
+    @SuppressWarnings("SpellCheckingInspection")
+    public static final String FILES_IN_FOLDER_PATH = "api/v1/filesinfolder/{filePathId}";
+    public static final String STORE_ROOT_PATH = "api/v1/filePath/{fileStoreId}/file-store-root-folder";
     public static final String STORE_RELATIVE_PATH = "api/v1/filePath/{fileStoreId}/{relativePath}";
-    public static final String STORE_PATH = "/api/v1/fileStoreNickname/{fileStoreNickname}";
+    public static final String STORES_PATH = "api/v1/fileStore";
+    public static final String STORE_PATH = "api/v1/fileStoreNickname/{fileStoreNickname}";
     private final FileInfoServiceFeignClient fileInfoServiceFeignClient;
+
+    @Override
+    public List<FileStoreDto> getFileStores() {
+        ResponseEntity<List<FileStoreDto>> responseEntity = fileInfoServiceFeignClient.getFileStores();
+        return responseEntity.getBody();
+    }
 
     @Override
     public FileStoreDto getFileStore(String nickname) {
@@ -45,7 +52,5 @@ public class FileInfoServiceFeignImpl implements FileInfoService {
         ResponseEntity<List<FileItemDto>> responseEntity = fileInfoServiceFeignClient.getFilesInFolder(filePathId);
         return responseEntity.getBody();
     }
-
-
 
 }

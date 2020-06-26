@@ -8,18 +8,23 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @SpringBootApplication
 @EnableFeignClients
 public class FileWalkerServiceApplication {
 
+	public static final String FETCH_PATH = "api/v1/fetchFile/{fileItemId}";
+	private static UUID appId;
+
 	public static void main(String[] args) throws IOException, InterruptedException {
+		appId = UUID.randomUUID();
 		SpringApplication.run(FileWalkerServiceApplication.class, args);
+	}
+
+	public static UUID getAppId() {
+		return appId;
 	}
 
 	private static void testOfWatchService(String basePath) throws IOException, InterruptedException {

@@ -6,6 +6,7 @@ import no.responseweb.imagearchive.model.FilePathDto;
 import no.responseweb.imagearchive.model.FileStoreDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -28,4 +29,7 @@ public interface FileInfoServiceFeignClient {
 
     @RequestMapping(method = RequestMethod.GET, value = FileInfoServiceFeignImpl.STORE_PATH)
     ResponseEntity<FileStoreDto> getFileStore(@PathVariable String fileStoreNickname);
+
+    @GetMapping(value = FileInfoServiceFeignImpl.STORES_PATH)
+    ResponseEntity<List<FileStoreDto>> getFileStores();
 }

@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 
 public interface FileInfoService {
+    List<FileStoreDto> getFileStores();
     FileStoreDto getFileStore(String nickname);
     FilePathDto getRootFilePath(UUID fileStoreId);
     FilePathDto getStoreRelativePath(UUID fileStoreId, String relativePath);
