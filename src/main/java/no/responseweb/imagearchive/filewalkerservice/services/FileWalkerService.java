@@ -1,10 +1,13 @@
 package no.responseweb.imagearchive.filewalkerservice.services;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import no.responseweb.imagearchive.filewalkerservice.FileWalkerServiceApplication;
 import no.responseweb.imagearchive.filewalkerservice.config.JmsConfig;
 import no.responseweb.imagearchive.filewalkerservice.config.ResponseFilestoreProperties;
+import no.responseweb.imagearchive.filewalkerservice.services.pathcachemodel.FileStorePathCache;
+import no.responseweb.imagearchive.filewalkerservice.services.pathcachemodel.FileStorePathCacheItem;
 import no.responseweb.imagearchive.model.*;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.jms.core.JmsTemplate;
@@ -33,6 +36,8 @@ import static java.time.ZoneId.systemDefault;
 @RequiredArgsConstructor
 public class FileWalkerService {
 
+    private static final String FOLDER_CACHE_FILE_NAME = ".fileStore";
+
     private final FileInfoService fileInfoService;
     private final JmsTemplate jmsTemplate;
     private final ResponseFilestoreProperties responseFilestoreProperties;
@@ -48,7 +53,8 @@ public class FileWalkerService {
             FileStoreDto fileStoreDto = walkerJobDto.getFileStoreDto();
             log.info("Scheduled walk started on file-store: {}", fileStoreDto);
             Set<String> fileList = new HashSet<>();
-            Map<Path,List<FileItemDto>> testmap = new HashMap<>();
+            Map<Path,List<FileItemDto>> fileItemCacheMap = new HashMap<>();
+            Map<Path,FileStorePathCache> folderItemsCacheMap = new HashMap<>();
             File fPath = new File(fileStoreDto.getLocalBaseUri());
             if (!responseFilestoreProperties.getOverrideWalkPath().isEmpty()) {
                 fPath = new File(responseFilestoreProperties.getOverrideWalkPath() + File.separator + fileStoreDto.getMountPoint() + File.separator + fileStoreDto.getBaseFolder());
@@ -61,19 +67,28 @@ public class FileWalkerService {
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     log.info("Checking = {}", dir.toRealPath());
 
+                    Path confFile = new File(dir+File.separator+FOLDER_CACHE_FILE_NAME).toPath();
+//                    FileStorePathCache currentCachedConfigFile = readFileStoreConfigFile(confFile);
+                    folderItemsCacheMap.put(dir,updateContentFile(readFileStoreConfigFile(confFile),fileStoreDto));
+
                     FilePathDto filePathDto;
                     if (rootPath.equals(dir)) {
                         filePathDto = fileInfoService.getRootFilePath(fileStoreDto.getId());
                     } else {
                         filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),rootPath.relativize(dir).toString());
                     }
+//                    if (filePathDto.getId()==null) {
+//                        filePathDto.setId(UUID.fromString(folderItemsCacheMap.get(dir).getFilePathId()));
+//                    }
                     log.info("Current FilePath: {}", filePathDto);
+                    folderItemsCacheMap.put(dir,updateContentFile(folderItemsCacheMap.get(dir),filePathDto));
+                    logFileStoreConfigFile(folderItemsCacheMap.get(dir));
 
                     List<FileItemDto> filesAtPath = new ArrayList<>();
                     if (filePathDto!=null) {
                         filesAtPath = fileInfoService.getFilesAtPath(filePathDto.getId());
                     }
-                    testmap.put(dir,filesAtPath);
+                    fileItemCacheMap.put(dir,filesAtPath);
                     return super.preVisitDirectory(dir, attrs);
                 }
 
@@ -88,7 +103,7 @@ public class FileWalkerService {
                     }
 
                     if (filePathDto != null) {
-                        List<FileItemDto> fileItems = testmap.get(dir).stream()
+                        List<FileItemDto> fileItems = fileItemCacheMap.get(dir).stream()
                                 .filter(fileItem -> !fileItem.isLocallyVisited())
                                 .collect(Collectors.toList());
 
@@ -105,13 +120,16 @@ public class FileWalkerService {
 
                     }
 
-                    testmap.remove(dir);
+                    fileItemCacheMap.remove(dir);
+
+                    saveFileStoreConfigFile(dir,folderItemsCacheMap.get(dir));
+
                     return super.postVisitDirectory(dir, exc);
                 }
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (!Files.isDirectory(file)) {
+                    if ((!Files.isDirectory(file)) && (!file.getFileName().toString().equalsIgnoreCase(FOLDER_CACHE_FILE_NAME))) {
 
                         Path relativePath = rootPath.relativize(file.getParent());
                         FilePathDto filePathDto;
@@ -122,6 +140,7 @@ public class FileWalkerService {
                         }
                         if (filePathDto == null) {
                             filePathDto = FilePathDto.builder()
+//                                    .id(UUID.fromString(folderItemsCacheMap.get(file.getParent()).getFilePathId()))
                                     .fileStoreId(fileStoreDto.getId())
                                     .relativePath(relativePath.toString())
                                     .build();
@@ -129,7 +148,7 @@ public class FileWalkerService {
 
                         BasicFileAttributes fileAttr = Files.getFileAttributeView(file, BasicFileAttributeView.class).readAttributes();
 
-                        List<FileItemDto> fileItems = testmap.get(file.getParent());
+                        List<FileItemDto> fileItems = fileItemCacheMap.get(file.getParent());
 
                         FileItemDto fromStore = fileItems.stream()
                                 .filter(fileItem -> file.getFileName().toString().equals(fileItem.getFilename()))
@@ -141,18 +160,19 @@ public class FileWalkerService {
                                 .orElse(null);
                         if (fromStore==null) {
                             log.info("New file: {}", file.getFileName());
+                            fromStore = FileItemDto.builder()
+                                    .fileStorePathId(filePathDto.getId())
+                                    .filename(file.getFileName().toString())
+                                    .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
+                                    .lastModifiedDate(LocalDateTime.ofInstant(fileAttr.lastModifiedTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
+                                    .size(fileAttr.size())
+                                    .build();
                             jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
                                     .fileStoreRequestType(FileStoreRequestTypeDto.INSERT)
                                     .walkerJobDto(walkerJobDto)
                                     .fileStore(fileStoreDto)
                                     .filePath(filePathDto)
-                                    .fileItem(FileItemDto.builder()
-                                            .fileStorePathId(filePathDto.getId())
-                                            .filename(file.getFileName().toString())
-                                            .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
-                                            .lastModifiedDate(LocalDateTime.ofInstant(fileAttr.lastModifiedTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
-                                            .size(fileAttr.size())
-                                            .build())
+                                    .fileItem(fromStore)
                                     .build());
                         } else {
                             log.info("File found in store: {}", fromStore);
@@ -185,6 +205,8 @@ public class FileWalkerService {
                         }
                         // check
                         fileList.add(file.getFileName().toString());
+                        // TODO: add FileStorePathCacheItem for current file to folderItemsCacheMap
+                        folderItemsCacheMap.put(file.getParent(),updateContentFile(folderItemsCacheMap.get(file.getParent()),fromStore));
                     }
                     return FileVisitResult.CONTINUE;
                 }
@@ -193,5 +215,70 @@ public class FileWalkerService {
         }
 
     }
-
+    private void logFileStoreConfigFile(FileStorePathCache file) {
+        if (file!=null) {
+            if (file.getFileStoreId()!=null) {
+                log.info("File Store: {}", file.getFileStoreId());
+            }
+            if (file.getFilePathId()!=null) {
+                log.info("File Path: {}", file.getFilePathId());
+            }
+            if (file.getFileItems()!=null) {
+                log.info("File Items: {}", file.getFileItems());
+            }
+        }
+    }
+    private FileStorePathCache updateContentFile(FileStorePathCache cacheFile, FileStoreDto fileStoreDto) {
+        if (cacheFile == null) {
+            cacheFile = FileStorePathCache.builder().build();
+        }
+        if (fileStoreDto != null && fileStoreDto.getId() != null) {
+            cacheFile.setFileStoreId(fileStoreDto.getId().toString());
+        }
+        return cacheFile;
+    }
+    private FileStorePathCache updateContentFile(FileStorePathCache cacheFile, FilePathDto filePathDto) {
+        if (cacheFile == null) {
+            cacheFile = FileStorePathCache.builder().build();
+        }
+        if (filePathDto != null && filePathDto.getId() != null) {
+            cacheFile.setFilePathId(filePathDto.getId().toString());
+        }
+        return cacheFile;
+    }
+    private FileStorePathCache updateContentFile(FileStorePathCache cacheFile, FileItemDto fileItemDto) {
+        if (cacheFile == null) {
+            cacheFile = FileStorePathCache.builder().build();
+        }
+        if (cacheFile.getFileItems() == null) {
+            cacheFile.setFileItems(new ArrayList<>());
+        }
+        if (fileItemDto != null) {
+            // TODO: get tags from DB
+            List<FixedTagEntityDto> tags = null;
+            cacheFile.getFileItems().add(
+                    FileStorePathCacheItem.builder()
+                            .fileItemId(fileItemDto.getId())
+                            .fileName(fileItemDto.getFilename())
+                            .fixedTagEntities(tags)
+                            .build());
+        }
+        return cacheFile;
+    }
+    private FileStorePathCache readFileStoreConfigFile(Path file) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        return (Files.exists(file) && Files.size(file)>0 ) ? mapper.readValue(file.toFile(),FileStorePathCache.class) : null;
+    }
+    private void saveFileStoreConfigFile(Path parent, FileStorePathCache file) throws IOException {
+        if (file.getFileStoreId()!=null) {
+            Path confFile = new File(parent+File.separator+FOLDER_CACHE_FILE_NAME).toPath();
+            if (!Files.exists(confFile)) {
+                Files.createFile(confFile);
+            } else {
+                ObjectMapper mapper = new ObjectMapper();
+                mapper.writeValue(confFile.toFile(), file);
+            }
+            Files.setAttribute(confFile, "dos:hidden", true);
+        }
+    }
 }

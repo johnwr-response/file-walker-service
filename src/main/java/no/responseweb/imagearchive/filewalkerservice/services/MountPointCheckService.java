@@ -28,7 +28,7 @@ public class MountPointCheckService {
     private final JmsTemplate jmsTemplate;
     private final ResponseFilestoreProperties responseFilestoreProperties;
 
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelayString = "${response.walker.status.fixed-delay-time}")
     public void checkAvailability() throws IOException {
         String runningOs = System.getProperty("os.name");
         log.debug("Running file-system availability check on walker running on {}", runningOs);
