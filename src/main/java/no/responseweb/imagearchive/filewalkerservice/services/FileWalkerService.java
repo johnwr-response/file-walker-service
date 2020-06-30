@@ -205,7 +205,7 @@ public class FileWalkerService {
                         }
                         // check
                         fileList.add(file.getFileName().toString());
-                        // TODO: add FileStorePathCacheItem for current file to folderItemsCacheMap
+                        // TODO: check if working for new files as well
                         folderItemsCacheMap.put(file.getParent(),updateContentFile(folderItemsCacheMap.get(file.getParent()),fromStore));
                     }
                     return FileVisitResult.CONTINUE;
