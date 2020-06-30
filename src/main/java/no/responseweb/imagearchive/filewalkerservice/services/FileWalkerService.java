@@ -77,9 +77,7 @@ public class FileWalkerService {
                     } else {
                         filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),rootPath.relativize(dir).toString());
                     }
-//                    if (filePathDto.getId()==null) {
-//                        filePathDto.setId(UUID.fromString(folderItemsCacheMap.get(dir).getFilePathId()));
-//                    }
+
                     log.info("Current FilePath: {}", filePathDto);
                     folderItemsCacheMap.put(dir,updateContentFile(folderItemsCacheMap.get(dir),filePathDto));
                     logFileStoreConfigFile(folderItemsCacheMap.get(dir));
@@ -109,6 +107,12 @@ public class FileWalkerService {
 
                         fileItems.forEach(fileItem -> {
                             log.info("File is removed: {}", fileItem);
+                            // TODO: update folderItemsCacheMap
+                            folderItemsCacheMap.get(dir).getFileItems().removeAll(
+                                    folderItemsCacheMap.get(dir).getFileItems().stream()
+                                            .filter(fileStorePathCacheItem -> fileStorePathCacheItem.getFileName().equals(fileItem.getFilename()))
+                                            .collect(Collectors.toList())
+                            );
                             jmsTemplate.convertAndSend(JmsConfig.FILE_STORE_REQUEST_QUEUE, FileStoreRequestDto.builder()
                                     .fileStoreRequestType(FileStoreRequestTypeDto.DELETE)
                                     .walkerJobDto(walkerJobDto)
@@ -139,8 +143,9 @@ public class FileWalkerService {
                             filePathDto = fileInfoService.getStoreRelativePath(fileStoreDto.getId(),relativePath.toString());
                         }
                         if (filePathDto == null) {
+                            // TODO: Check: If folder is not in database but confFile exists. Should load folder from confFile to persist
                             filePathDto = FilePathDto.builder()
-//                                    .id(UUID.fromString(folderItemsCacheMap.get(file.getParent()).getFilePathId()))
+                                    .id(UUID.fromString(folderItemsCacheMap.get(file.getParent()).getFilePathId()))
                                     .fileStoreId(fileStoreDto.getId())
                                     .relativePath(relativePath.toString())
                                     .build();
@@ -160,7 +165,11 @@ public class FileWalkerService {
                                 .orElse(null);
                         if (fromStore==null) {
                             log.info("New file: {}", file.getFileName());
+                            UUID firstMatch = folderItemsCacheMap.get(file.getParent()).getFileItems().stream()
+                                    .filter(fileStorePathCacheItem -> fileStorePathCacheItem.getFileName().equals(file.getFileName().toString()))
+                                    .findFirst().orElse(new FileStorePathCacheItem()).getFileItemId();
                             fromStore = FileItemDto.builder()
+                                    .id(firstMatch)
                                     .fileStorePathId(filePathDto.getId())
                                     .filename(file.getFileName().toString())
                                     .createdDate(LocalDateTime.ofInstant(fileAttr.creationTime().toInstant().truncatedTo(ChronoUnit.SECONDS), currentSystemZoneOffset))
@@ -205,7 +214,6 @@ public class FileWalkerService {
                         }
                         // check
                         fileList.add(file.getFileName().toString());
-                        // TODO: check if working for new files as well
                         folderItemsCacheMap.put(file.getParent(),updateContentFile(folderItemsCacheMap.get(file.getParent()),fromStore));
                     }
                     return FileVisitResult.CONTINUE;
@@ -256,12 +264,19 @@ public class FileWalkerService {
         if (fileItemDto != null) {
             // TODO: get tags from DB
             List<FixedTagEntityDto> tags = null;
-            cacheFile.getFileItems().add(
-                    FileStorePathCacheItem.builder()
-                            .fileItemId(fileItemDto.getId())
-                            .fileName(fileItemDto.getFilename())
-                            .fixedTagEntities(tags)
-                            .build());
+
+            FileStorePathCacheItem foundByNameInCache = cacheFile.getFileItems().stream()
+                    .filter(fileStorePathCacheItem -> fileStorePathCacheItem.getFileName().equals(fileItemDto.getFilename()))
+                    .findFirst()
+                    .orElse(null);
+            if (foundByNameInCache==null) {
+                foundByNameInCache = FileStorePathCacheItem.builder()
+                        .fileItemId(fileItemDto.getId())
+                        .fileName(fileItemDto.getFilename())
+                        .fixedTagEntities(tags)
+                        .build();
+                cacheFile.getFileItems().add(foundByNameInCache);
+            }
         }
         return cacheFile;
     }
@@ -274,10 +289,9 @@ public class FileWalkerService {
             Path confFile = new File(parent+File.separator+FOLDER_CACHE_FILE_NAME).toPath();
             if (!Files.exists(confFile)) {
                 Files.createFile(confFile);
-            } else {
-                ObjectMapper mapper = new ObjectMapper();
-                mapper.writeValue(confFile.toFile(), file);
             }
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.writeValue(confFile.toFile(), file);
             Files.setAttribute(confFile, "dos:hidden", true);
         }
     }
